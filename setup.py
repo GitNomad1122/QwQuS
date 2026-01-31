@@ -5,11 +5,15 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     install_requires=[
-        "qwen-agent[gui,code_interpreter]>=1.1.0",
         "numpy>=1.24.0",
         "pandas>=2.0.0",
         "matplotlib>=3.7.0",
     ],
+    extras_require={
+        'agent': [
+            "qwen-agent[gui,code_interpreter]>=1.1.0",
+        ]
+    },
     python_requires=">=3.10",
     author="GitNomad1122",
     description="AI-powered circuit simulation with Qwen-Agent and QUCS-S",

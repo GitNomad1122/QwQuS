@@ -46,22 +46,24 @@ class QucsSimulator(BaseTool):
         """
         Run circuit simulation using QUCS
         """
+        # Check if qucsator is available
+        qucsator_cmd = self._find_qucsator()
+        if not qucsator_cmd:
+            return {
+                'error': 'QUCSator not found in PATH. Please install QUCS-S and ensure qucsator is in PATH. '
+                         'Download from: https://github.com/ra3xdh/qucs_s/releases. '
+                         'Current supported executable names: qucsator, qucsator.exe, qucsator_rf, qucsator_rf.exe'
+            }
+        
         # Create temporary directory for simulation
         with tempfile.TemporaryDirectory() as temp_dir:
             # Write netlist to temporary file
             netlist_path = os.path.join(temp_dir, 'circuit.net')
-            with open(netlist_path, 'w') as f:
+            with open(netlist_path, 'w', encoding='utf-8') as f:
                 f.write(netlist)
             
             # Run QUCS simulation
             try:
-                # Find qucsator executable
-                qucsator_cmd = self._find_qucsator()
-                if not qucsator_cmd:
-                    return {
-                        'error': 'QUCSator not found in PATH. Please install QUCS-S and ensure qucsator is in PATH.'
-                    }
-                
                 # Execute simulation
                 result = subprocess.run([
                     qucsator_cmd, '-i', netlist_path, '-o', os.path.join(temp_dir, 'output.dat')
@@ -109,21 +111,28 @@ class QucsSimulator(BaseTool):
         """
         Find QUCSator executable in system PATH
         """
-        # Try common locations for qucsator
-        possible_names = ['qucsator', 'qucsator.exe']
+        # Try common locations for qucsator - including RF version
+        possible_names = ['qucsator', 'qucsator.exe', 'qucsator_rf', 'qucsator_rf.exe']
         
         for name in possible_names:
-            # Check if it's in PATH
-            result = subprocess.run(['where', name], capture_output=True, text=True)
-            if result.returncode == 0:
-                return name
-        
-        # On Unix-like systems, also try 'which'
-        if os.name != 'nt':
-            for name in possible_names:
-                result = subprocess.run(['which', name], capture_output=True, text=True)
-                if result.returncode == 0:
+            # Check if it's in PATH using shutil.which for better cross-platform support
+            try:
+                import shutil
+                cmd_path = shutil.which(name)
+                if cmd_path:
                     return name
+            except:
+                # Fallback to subprocess for systems where shutil.which doesn't work
+                try:
+                    if os.name == 'nt':  # Windows
+                        result = subprocess.run(['where', name], capture_output=True, text=True)
+                    else:  # Unix-like
+                        result = subprocess.run(['which', name], capture_output=True, text=True)
+                    
+                    if result.returncode == 0:
+                        return name
+                except:
+                    continue
         
         return None
 
@@ -135,8 +144,13 @@ class QucsSimulator(BaseTool):
             return {}
         
         data = {}
-        with open(dat_file, 'r') as f:
-            lines = f.readlines()
+        try:
+            with open(dat_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except UnicodeDecodeError:
+            # Try with different encoding
+            with open(dat_file, 'r', encoding='latin-1') as f:
+                lines = f.readlines()
         
         current_var = None
         current_values = []
@@ -147,6 +161,11 @@ class QucsSimulator(BaseTool):
                 # Extract variable name
                 parts = line.split()
                 if len(parts) >= 2:
+                    # Store previous variable if exists
+                    if current_var and current_values:
+                        data[current_var] = current_values
+                    
+                    # Start new variable
                     current_var = parts[1].strip()
                     current_values = []
             elif line.startswith('Values'):
@@ -192,18 +211,40 @@ class QucsSimulator(BaseTool):
         plotted = False
         for key, values in data.items():
             if isinstance(values, list) and len(values) > 0:
-                x_vals = list(range(len(values)))  # Use index as x-axis if no frequency/time data
-                y_vals = values
+                # Check if values are numeric
+                numeric_values = []
+                for val in values:
+                    if isinstance(val, (int, float, complex)):
+                        numeric_values.append(val)
+                    elif isinstance(val, str):
+                        try:
+                            numeric_values.append(float(val))
+                        except ValueError:
+                            continue
                 
+                if not numeric_values:
+                    continue
+                    
                 # If first column looks like frequency/time, use it as x-axis
                 if 'freq' in key.lower() or 'time' in key.lower() or 'indep' in key.lower():
-                    x_vals = values
+                    x_vals = numeric_values
                     # Find corresponding dependent variable
                     for dep_key, dep_values in data.items():
                         if dep_key != key and isinstance(dep_values, list):
-                            plt.plot(x_vals[:len(dep_values)], dep_values, label=dep_key, marker='o')
-                            plotted = True
-                            break
+                            y_vals = []
+                            for val in dep_values:
+                                if isinstance(val, (int, float, complex)):
+                                    y_vals.append(val)
+                                elif isinstance(val, str):
+                                    try:
+                                        y_vals.append(float(val))
+                                    except ValueError:
+                                        continue
+                            
+                            if len(y_vals) > 0:
+                                plt.plot(x_vals[:len(y_vals)], y_vals, label=dep_key, marker='o')
+                                plotted = True
+                                break
                 else:
                     # If we have independent variable, use it for x-axis
                     indep_key = None
@@ -213,10 +254,34 @@ class QucsSimulator(BaseTool):
                             break
                     
                     if indep_key:
-                        indep_vals = data[indep_key][:len(values)]
-                        plt.plot(indep_vals, values, label=key, marker='o')
+                        indep_vals = []
+                        for val in data[indep_key]:
+                            if isinstance(val, (int, float)):
+                                indep_vals.append(val)
+                            elif isinstance(val, str):
+                                try:
+                                    indep_vals.append(float(val))
+                                except ValueError:
+                                    continue
+                        
+                        y_vals = []
+                        for val in values:
+                            if isinstance(val, (int, float, complex)):
+                                y_vals.append(val)
+                            elif isinstance(val, str):
+                                try:
+                                    y_vals.append(float(val))
+                                except ValueError:
+                                    continue
+                        
+                        if len(indep_vals) == len(y_vals):
+                            plt.plot(indep_vals, y_vals, label=key, marker='o')
+                        else:
+                            x_vals = list(range(len(y_vals)))
+                            plt.plot(x_vals, y_vals, label=key, marker='o')
                     else:
-                        plt.plot(x_vals, values, label=key, marker='o')
+                        x_vals = list(range(len(numeric_values)))
+                        plt.plot(x_vals, numeric_values, label=key, marker='o')
                     plotted = True
         
         if plotted:

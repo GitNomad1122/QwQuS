@@ -13,11 +13,13 @@
 - Visualize results through matplotlib
 - Support for common circuits: filters, amplifiers, oscillators
 - Cross-platform support (Windows/Linux/macOS)
+- **NEW**: Works with mock simulator when QUCS-S is not installed for development/testing
 
 ## 🚀 Quick Start
 
 ```bash
-# 1. Install QUCS-S: https://github.com/ra3xdh/qucs_s/releases
+# 1. Install QUCS-S (optional, for real simulations): https://github.com/ra3xdh/qucs_s/releases
+#    Without QUCS-S, the system uses mock simulations for development/testing
 # 2. Set up environment
 git clone https://github.com/GitNomad1122/QwQuS.git
 cd QwQuS
@@ -26,7 +28,7 @@ python -m venv venv && venv\Scripts\activate  # On Windows
 pip install -e .
 
 # 3. Run an example
-python examples/rc_lowpass_demo.py
+python examples/rc_filter_demo.py
 ```
 
 ## 📁 Project Structure
@@ -39,52 +41,62 @@ QwQuS/
 ├── setup.py                  # Package installation
 ├── qwqus/                    # Main package
 │   ├── __init__.py
-│   ├── tools/
+│   ├── core/                 # Core simulation functionality
 │   │   ├── __init__.py
-│   │   └── qucs_simulator.py # Custom QUCS simulator tool
+│   │   ├── simulator.py      # QUCS integration (with mock fallback)
+│   │   └── netlist.py        # Netlist generation
+│   ├── tools/                # Qwen-Agent integration tools
+│   │   ├── __init__.py
+│   │   └── qucs_simulator.py # Custom Qwen-Agent tool
 │   └── utils/
 │       ├── __init__.py
 │       ├── netlist_templates.py # Circuit templates
 │       └── dat_parser.py        # QUCS output parser
 └── examples/
-    ├── rc_lowpass_demo.py       # RC filter example
+    ├── rc_filter_demo.py        # RC filter example (with visualization)
+    ├── rc_lowpass_demo.py       # RC filter example (alternative)
     ├── transistor_amp_demo.py   # Amplifier example
     └── agent_webui.py           # Web interface for agent
 ```
 
-## 🛠️ Usage Examples
+## 🛠️ Installation & Usage
 
-### Run a Simple Simulation
-
-```python
-from qwqus.tools.qucs_simulator import QucsSimulator
-from qwqus.utils.netlist_templates import NetlistTemplates
-
-simulator = QucsSimulator()
-
-# Create an RC low-pass filter
-rc_netlist = NetlistTemplates.rc_low_pass(R_value="1k", C_value="1uF")
-
-# Run simulation
-result = simulator._run(
-    netlist=rc_netlist,
-    analysis_type='ac',
-    output_vars=['frequency', 'out']
-)
+### Basic Installation
+```bash
+pip install -e .
 ```
 
-### Natural Language Circuit Design
-
-```python
-from examples.agent_webui import create_circuit_design_agent
-
-agent = create_circuit_design_agent()
-# Now you can interact with the agent using natural language
+### With Full Qwen-Agent Integration
+```bash
+pip install -e ".[agent]"
+# or
+pip install -e . "qwen-agent[gui,code_interpreter]>=1.1.0"
 ```
+
+### Running Examples
+```bash
+# Basic RC filter simulation (works with or without QUCS-S)
+python examples/rc_filter_demo.py
+
+# With Qwen-Agent integration (requires full installation)
+python examples/agent_webui.py
+```
+
+## 🧪 Testing Without QUCS-S
+
+The system includes a mock simulator that generates realistic data for common circuits when QUCS-S is not installed. This allows development and testing without requiring the full QUCS-S installation.
 
 ## 🤝 Contributing
 
 We welcome contributions! Please see our [Issues](https://github.com/GitNomad1122/QwQuS/issues) page for ways to contribute.
+
+### Development Setup
+```bash
+# Clone and install in development mode
+git clone https://github.com/GitNomad1122/QwQuS.git
+cd QwQuS
+pip install -e .
+```
 
 ## 📄 License
 
