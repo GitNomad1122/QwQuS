@@ -1,136 +1,64 @@
 """
-RC Filter Demo for QwQuS
-Demonstrates basic circuit simulation with visualization
+RC Filter SimulationDemo with Visualization
 """
-import sys
-import os
-
-# Add the qwqus package to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from qwqus.core.simulator import simulate_circuit
-from qwqus.core.netlist import rc_lowpass_netlist, calculate_rc_cutoff
 import matplotlib.pyplot as plt
 import numpy as np
+from qwqus.core.simulator import CircuitSimulator
+from qwqus.core.netlist import rc_lowpass_netlist, calculate_rc_cutoff
 
 
-def run_rc_filter_demo():
-    """
-    Run RC low-pass filter simulation and visualization
-    """
-    print("🔧 Initializing QwQuS Circuit Simulator...")
+def main():
+    print("🚀 Running RC low-pass filter simulation...")
+    print("   R = 1 kOhm, C = 100 nF → calculated cutoff frequency: 1.59 kHz\n")
     
-    print("\n📝 Creating RC low-pass filter netlist...")
-    # Create a simple RC low-pass filter (R=1kΩ, C=100nF)
-    R_VALUE = 1000  # 1k Ohms
-    C_VALUE = 100e-9  # 100 nF
+    # 1. Create simulator (auto-detect QUCS-S or mock)
+    sim = CircuitSimulator(use_mock=False)  # False = try real simulation
     
-    netlist = rc_lowpass_netlist(r_ohm=R_VALUE, c_farad=C_VALUE)
-    print("Generated netlist:")
-    print(netlist)
+    #2. Generate netlist
+    netlist = rc_lowpass_netlist(r_ohm=1000, c_farad=100e-9)
     
-    # Calculate theoretical cutoff
-    theoretical_fc = calculate_rc_cutoff(R_VALUE, C_VALUE)
-    print(f"\n🔍 Theoretical cutoff frequency: {theoretical_fc:.2f} Hz")
-    
-    print("\n🚀 Running AC simulation...")
-    # Run the simulation
-    results = simulate_circuit(
-        netlist=netlist,
-        analysis_type='ac',
-        f_start=1,      # 1 Hz
-        f_stop=1e6,     # 1 MHz
-        output_vars=['frequency', 'output_voltage']  # Looking for frequency and output voltage
+    # 3. Run simulation
+    results = sim.simulate(
+        netlist,
+        analysis_type="ac",
+        f_start=10,
+        f_stop=100_000
     )
     
-    print(f"\n✅ Simulation completed: {results['message']}")
-    print(f"Analysis type: {results['analysis_type']}")
+    # 4. Visualization
+    plt.figure(figsize=(10, 6))
     
-    # Print the data keys available
-    print(f"Available data keys: {list(results['data'].keys())}")
+    # Amplitude-frequency characteristic
+    plt.subplot(2, 1, 1)
+    plt.semilogx(results.frequencies, results.magnitude_db, 'b-', linewidth=2)
+    plt.axvline(1590, color='r', linestyle='--', alpha=0.7, label='fc = 1.59 kHz (theory)')
+    plt.axhline(-3, color='g', linestyle=':', alpha=0.7, label='-3 dB')
+    plt.title('RC Low-Pass Filter (R=1 kOhm, C=100 nF)', fontsize=14, fontweight='bold')
+    plt.ylabel('Amplitude (dB)')
+    plt.grid(True, which='both',ls='--', alpha=0.7)
+    plt.legend()
     
-    # Visualize the results
-    print("\n📊 Plotting results...")
-    try:
-        # Get the data
-        data = results['data']
-        
-        # Extract frequency and magnitude data
-        if 'frequency' in data and ('magnitude' in data or 'output_voltage' in data):
-            frequencies = np.array(data['frequency'])
-            
-            # Use output_voltage if available, otherwise use magnitude
-            if 'output_voltage' in data:
-                magnitude = np.array(data['output_voltage'])
-            else:
-                magnitude = np.array(data['magnitude'])
-            
-            # Create magnitude plot in dB
-            magnitude_db = 20 * np.log10(magnitude)
-            
-            # Create plots
-            plt.figure(figsize=(12, 8))
-            
-            # Magnitude plot
-            plt.subplot(2, 1, 1)
-            plt.semilogx(frequencies, magnitude_db)
-            plt.title(f'RC Low-Pass Filter Response\nR={R_VALUE/1000:g}kΩ, C={C_VALUE*1e9:g}nF, fc≈{theoretical_fc:.1f}Hz')
-            plt.ylabel('Magnitude (dB)')
-            plt.grid(True, which="both", ls="-", alpha=0.3)
-            
-            # Add cutoff frequency line
-            plt.axvline(x=theoretical_fc, color='red', linestyle='--', alpha=0.7, label=f'Fc = {theoretical_fc:.1f} Hz')
-            plt.legend()
-            
-            # Phase plot if available
-            if 'phase' in data:
-                phase = np.array(data['phase'])
-                plt.subplot(2, 1, 2)
-                plt.semilogx(frequencies, np.degrees(phase))
-                plt.xlabel('Frequency (Hz)')
-                plt.ylabel('Phase (degrees)')
-                plt.grid(True, which="both", ls="-", alpha=0.3)
-            
-            plt.tight_layout()
-            plt.show()
-            
-            # Print some key values
-            print(f"\n📈 Key Results:")
-            print(f"  - At low frequencies (< {theoretical_fc/10:.0f} Hz): ~0 dB (passband)")
-            print(f"  - At cutoff frequency ({theoretical_fc:.1f} Hz): approximately -3 dB")
-            print(f"  - At high frequencies (> {theoretical_fc*10:.0f} Hz): decreasing at -20 dB/decade (stopband)")
-        else:
-            print("⚠️ Could not find appropriate data for plotting")
-            print("Available data keys:", list(data.keys()))
+    # Phase-frequency characteristic
+    if results.phase is not None:
+        plt.subplot(2, 1, 2)
+        plt.semilogx(results.frequencies, results.phase, 'purple', linewidth=2)
+        plt.axvline(1590, color='r', linestyle='--', alpha=0.7)
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Phase (°)')
+        plt.grid(True, which='both', ls='--', alpha=0.7)
     
-    except Exception as e:
-        print(f"⚠️ Error plotting results: {e}")
-        # Try to show raw data
-        if 'data' in results:
-            print("Raw data keys:", list(results['data'].keys()))
-
-
-def explain_rc_basics():
-    """
-    Explain the basics of RC low-pass filters
-    """
-    print("\n📖 RC Low-Pass Filter Basics:")
-    print("- Consists of a resistor (R) and capacitor (C) in series")
-    print("- Allows low frequencies to pass through while attenuating high frequencies")
-    print("- Cutoff frequency: fc = 1/(2πRC)")
-    print("- At fc, the output is reduced by 3 dB (~70.7% of input)")
-    print("- Roll-off rate: -20 dB per decade (-6 dB per octave)")
+    plt.tight_layout()
+    plt.savefig('rc_filter_response.png', dpi=150, bbox_inches='tight')
+    print("✅ Chart saved: rc_filter_response.png")
+    plt.show()
+    
+    # 5. Calculated verification
+    fc_measured = results.frequencies[np.argmin(np.abs(results.magnitude_db + 3))]
+    print(f"\n📊 Analysis Results:")
+    print(f"   • Theoretical cutoff frequency: 1.59 kHz")
+    print(f"   • Measured cutoff frequency (-3 dB): {fc_measured/1000:.2f} kHz")
+    print(f"   • Deviation: {abs(fc_measured - 1590)/1590*100:.1f}%")
 
 
 if __name__ == "__main__":
-    print("🧪 Running RC Filter Demo for QwQuS")
-    print("="*60)
-    
-    # Explain basics
-    explain_rc_basics()
-    
-    # Run the demo
-    run_rc_filter_demo()
-    
-    print("\n✨ RC Filter Demo completed!")
-    print("💡 Next: Try changing R and C values to see how they affect the filter response")
+    main()

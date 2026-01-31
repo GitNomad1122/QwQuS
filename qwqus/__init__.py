@@ -1,15 +1,12 @@
 """
 QwQuS - AI-Powered Circuit Simulation with Qwen-Agent and QUCS-S
 """
-from .core.simulator import QucsSimulator, simulate_circuit
+from .core.simulator import CircuitSimulator, SimulationResult
 from .core.netlist import (
-    generate_netlist,
     rc_lowpass_netlist,
     rc_highpass_netlist,
-    voltage_divider_netlist,
-    lc_tank_netlist,
-    calculate_rc_cutoff,
-    calculate_lc_resonance
+    opamp_inverting_amplifier,
+    calculate_rc_cutoff
 )
 
 __version__ = "0.1.0"
@@ -18,15 +15,12 @@ __license__ = "MIT"
 
 __all__ = [
     # Core simulator
-    'QucsSimulator',
-    'simulate_circuit',
+    'CircuitSimulator',
+    'SimulationResult',
     
     # Netlist generation
-    'generate_netlist',
     'rc_lowpass_netlist',
     'rc_highpass_netlist',
-    'voltage_divider_netlist',
-    'lc_tank_netlist',
+    'opamp_inverting_amplifier',
     'calculate_rc_cutoff',
-    'calculate_lc_resonance',
 ]

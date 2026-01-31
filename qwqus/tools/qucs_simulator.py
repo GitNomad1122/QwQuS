@@ -1,315 +1,129 @@
 """
-Custom QUCS Simulator Tool for Qwen-Agent
-Provides integration between Qwen-Agent and QUCS circuit simulator
+Custom tool for Qwen-Agent — QUCS-S integration
 """
-import os
-import subprocess
-import tempfile
-import re
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from typing import Dict, List, Optional, Union
 from qwen_agent.tools import BaseTool
+from qwqus.core.simulator import CircuitSimulator
+from qwqus.core.netlist import rc_lowpass_netlist, rc_highpass_netlist, opamp_inverting_amplifier, calculate_rc_cutoff
+import json
+from typing import Dict, Any
 
 
 class QucsSimulator(BaseTool):
     """
-    A tool that enables Qwen-Agent to interact with QUCS circuit simulator
+    Tool for running simulations in QUCS-S via Qwen-Agent
+    
+    Example usage by agent:
+    {
+      "name": "qucs_simulator",
+      "arguments": {
+        "circuit_type": "rc_lowpass",
+        "r_ohm": 1000,
+        "c_farad": 1e-7,
+        "analysis_type": "ac",
+        "f_start": 1,
+        "f_stop": 1000000
+      }
+    }
     """
+    
     def __init__(self):
         super().__init__()
         self.name = 'qucs_simulator'
-        self.description = 'Run circuit simulations using QUCS simulator'
+        self.description = (
+            "Simulates electronic circuits using QUCS-S. "
+            "Supports RC filters, op-amp circuits. "
+            "Returns frequency response data for visualization."
+        )
         self.parameters = {
             'type': 'object',
             'properties': {
-                'netlist': {
+                'circuit_type': {
                     'type': 'string',
-                    'description': 'QUCS netlist to simulate'
+                    'description': 'Type of circuit: "rc_lowpass", "rc_highpass", "opamp_inverting"',
+                    'enum': ['rc_lowpass', 'rc_highpass', 'opamp_inverting']
+                },
+                'r_ohm': {
+                    'type': 'number',
+                    'description': 'Resistor value in Ohms (for RC circuits)'
+                },
+                'c_farad': {
+                    'type': 'number',
+                    'description': 'Capacitor value in Farads (for RC circuits)'
                 },
                 'analysis_type': {
                     'type': 'string',
-                    'enum': ['ac', 'dc', 'transient', 'custom'],
-                    'description': 'Type of analysis to perform'
+                    'description': 'Analysis type: "ac", "dc", "transient"'
                 },
-                'output_vars': {
-                    'type': 'array',
-                    'items': {'type': 'string'},
-                    'description': 'Variables to extract from simulation'
+                'f_start': {
+                    'type': 'number',
+                    'description': 'Start frequency in Hz (for AC analysis)'
+                },
+                'f_stop': {
+                    'type': 'number',
+                    'description': 'Stop frequency in Hz (for AC analysis)'
                 }
             },
-            'required': ['netlist']
+            'required': ['circuit_type', 'analysis_type']
         }
-
-    def _run(self, netlist: str, analysis_type: str = 'ac', output_vars: Optional[List[str]] = None) -> Dict:
-        """
-        Run circuit simulation using QUCS
-        """
-        # Check if qucsator is available
-        qucsator_cmd = self._find_qucsator()
-        if not qucsator_cmd:
-            return {
-                'error': 'QUCSator not found in PATH. Please install QUCS-S and ensure qucsator is in PATH. '
-                         'Download from: https://github.com/ra3xdh/qucs_s/releases. '
-                         'Current supported executable names: qucsator, qucsator.exe, qucsator_rf, qucsator_rf.exe'
-            }
-        
-        # Create temporary directory for simulation
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Write netlist to temporary file
-            netlist_path = os.path.join(temp_dir, 'circuit.net')
-            with open(netlist_path, 'w', encoding='utf-8') as f:
-                f.write(netlist)
-            
-            # Run QUCS simulation
-            try:
-                # Execute simulation
-                result = subprocess.run([
-                    qucsator_cmd, '-i', netlist_path, '-o', os.path.join(temp_dir, 'output.dat')
-                ], capture_output=True, text=True, timeout=30)
-                
-                if result.returncode != 0:
-                    return {
-                        'error': f'Simulation failed: {result.stderr}'
-                    }
-                
-                # Parse output data
-                output_data = self._parse_output(os.path.join(temp_dir, 'output.dat'))
-                
-                # Filter output variables if specified
-                if output_vars:
-                    filtered_data = {}
-                    for var in output_vars:
-                        if var in output_data:
-                            filtered_data[var] = output_data[var]
-                        else:
-                            # Try to find partial matches
-                            for key in output_data:
-                                if var.lower() in key.lower():
-                                    filtered_data[key] = output_data[key]
-                                    break
-                    output_data = filtered_data
-                
-                return {
-                    'success': True,
-                    'analysis_type': analysis_type,
-                    'data': output_data,
-                    'message': 'Simulation completed successfully'
-                }
-                
-            except subprocess.TimeoutExpired:
-                return {
-                    'error': 'Simulation timed out'
-                }
-            except Exception as e:
-                return {
-                    'error': f'Simulation error: {str(e)}'
-                }
-
-    def _find_qucsator(self) -> Optional[str]:
-        """
-        Find QUCSator executable in system PATH
-        """
-        # Try common locations for qucsator - including RF version
-        possible_names = ['qucsator', 'qucsator.exe', 'qucsator_rf', 'qucsator_rf.exe']
-        
-        for name in possible_names:
-            # Check if it's in PATH using shutil.which for better cross-platform support
-            try:
-                import shutil
-                cmd_path = shutil.which(name)
-                if cmd_path:
-                    return name
-            except:
-                # Fallback to subprocess for systems where shutil.which doesn't work
-                try:
-                    if os.name == 'nt':  # Windows
-                        result = subprocess.run(['where', name], capture_output=True, text=True)
-                    else:  # Unix-like
-                        result = subprocess.run(['which', name], capture_output=True, text=True)
-                    
-                    if result.returncode == 0:
-                        return name
-                except:
-                    continue
-        
-        return None
-
-    def _parse_output(self, dat_file: str) -> Dict:
-        """
-        Parse QUCS output .dat file
-        """
-        if not os.path.exists(dat_file):
-            return {}
-        
-        data = {}
+        # Use mock mode by default for safety
+        self.simulator = CircuitSimulator(use_mock=True)
+    
+    def _run(self, params: Dict[str, Any]) -> str:
         try:
-            with open(dat_file, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-        except UnicodeDecodeError:
-            # Try with different encoding
-            with open(dat_file, 'r', encoding='latin-1') as f:
-                lines = f.readlines()
-        
-        current_var = None
-        current_values = []
-        
-        for line in lines:
-            line = line.strip()
-            if line.startswith('Symbol'):
-                # Extract variable name
-                parts = line.split()
-                if len(parts) >= 2:
-                    # Store previous variable if exists
-                    if current_var and current_values:
-                        data[current_var] = current_values
-                    
-                    # Start new variable
-                    current_var = parts[1].strip()
-                    current_values = []
-            elif line.startswith('Values'):
-                continue  # Skip header line
-            elif line.startswith('#') or line == '':
-                # Handle variable boundary or comments
-                if current_var and current_values:
-                    data[current_var] = current_values
-                    current_var = None
-                    current_values = []
+            # Parse parameters
+            p = params
+            
+            # Select circuit generator
+            circuit_type = p.get("circuit_type", "rc_lowpass")
+            r = p.get("r_ohm", 1000)
+            c = p.get("c_farad", 100e-9)
+            
+            if circuit_type == "rc_lowpass":
+                netlist = rc_lowpass_netlist(r_ohm=r, c_farad=c)
+            elif circuit_type == "rc_highpass":
+                netlist = rc_highpass_netlist(r_ohm=r, c_farad=c)
+            elif circuit_type == "opamp_inverting":
+                r1 = p.get("r1_ohm", 1000)
+                r2 = p.get("r2_ohm", 10000)
+                netlist = opamp_inverting_amplifier(r1_ohm=r1, r2_ohm=r2)
             else:
-                # Parse numeric values
-                try:
-                    # Handle complex numbers and regular numbers
-                    if ',' in line:
-                        # Complex number format: real,imag
-                        real, imag = map(float, line.split(','))
-                        current_values.append(complex(real, imag))
-                    else:
-                        # Regular number
-                        current_values.append(float(line))
-                except ValueError:
-                    # Skip lines that aren't numeric
-                    continue
-        
-        # Don't forget the last variable
-        if current_var and current_values:
-            data[current_var] = current_values
-        
-        return data
-
-    @staticmethod
-    def plot_results(data: Dict, analysis_type: str = 'ac', title: str = "Simulation Results"):
-        """
-        Plot simulation results using matplotlib
-        """
-        if not data:
-            print("No data to plot")
-            return
-        
-        plt.figure(figsize=(10, 6))
-        
-        plotted = False
-        for key, values in data.items():
-            if isinstance(values, list) and len(values) > 0:
-                # Check if values are numeric
-                numeric_values = []
-                for val in values:
-                    if isinstance(val, (int, float, complex)):
-                        numeric_values.append(val)
-                    elif isinstance(val, str):
-                        try:
-                            numeric_values.append(float(val))
-                        except ValueError:
-                            continue
-                
-                if not numeric_values:
-                    continue
-                    
-                # If first column looks like frequency/time, use it as x-axis
-                if 'freq' in key.lower() or 'time' in key.lower() or 'indep' in key.lower():
-                    x_vals = numeric_values
-                    # Find corresponding dependent variable
-                    for dep_key, dep_values in data.items():
-                        if dep_key != key and isinstance(dep_values, list):
-                            y_vals = []
-                            for val in dep_values:
-                                if isinstance(val, (int, float, complex)):
-                                    y_vals.append(val)
-                                elif isinstance(val, str):
-                                    try:
-                                        y_vals.append(float(val))
-                                    except ValueError:
-                                        continue
-                            
-                            if len(y_vals) > 0:
-                                plt.plot(x_vals[:len(y_vals)], y_vals, label=dep_key, marker='o')
-                                plotted = True
-                                break
-                else:
-                    # If we have independent variable, use it for x-axis
-                    indep_key = None
-                    for k in data.keys():
-                        if 'freq' in k.lower() or 'time' in k.lower() or 'indep' in k.lower():
-                            indep_key = k
-                            break
-                    
-                    if indep_key:
-                        indep_vals = []
-                        for val in data[indep_key]:
-                            if isinstance(val, (int, float)):
-                                indep_vals.append(val)
-                            elif isinstance(val, str):
-                                try:
-                                    indep_vals.append(float(val))
-                                except ValueError:
-                                    continue
-                        
-                        y_vals = []
-                        for val in values:
-                            if isinstance(val, (int, float, complex)):
-                                y_vals.append(val)
-                            elif isinstance(val, str):
-                                try:
-                                    y_vals.append(float(val))
-                                except ValueError:
-                                    continue
-                        
-                        if len(indep_vals) == len(y_vals):
-                            plt.plot(indep_vals, y_vals, label=key, marker='o')
-                        else:
-                            x_vals = list(range(len(y_vals)))
-                            plt.plot(x_vals, y_vals, label=key, marker='o')
-                    else:
-                        x_vals = list(range(len(numeric_values)))
-                        plt.plot(x_vals, numeric_values, label=key, marker='o')
-                    plotted = True
-        
-        if plotted:
-            plt.title(title)
-            plt.xlabel('Frequency (Hz)' if 'ac' in analysis_type.lower() else 'Time (s)')
-            plt.ylabel('Magnitude')
-            plt.legend()
-            plt.grid(True)
-            plt.tight_layout()
-            plt.show()
-        else:
-            print("No suitable data to plot")
+                return f'Error: unknown circuit type "{circuit_type}"'
+            
+            # Run simulation
+            analysis = p.get("analysis_type", "ac")
+            f_start = p.get("f_start", 1)
+            f_stop = p.get("f_stop", 1e6)
+            
+            result = self.simulator.simulate(
+                netlist,
+                analysis_type=analysis,
+                f_start=f_start,
+                f_stop=f_stop
+            )
+            
+            # Form human-readable response
+            fc_estimated = calculate_rc_cutoff(r, c) if circuit_type in ["rc_lowpass", "rc_highpass"] else None
+            
+            response = {
+                "status": "success",
+                "circuit_type": circuit_type,
+                "analysis_type": analysis,
+                "data": result.to_dict(),
+                "summary": f"Simulated {circuit_type} circuit"
+            }
+            
+            if fc_estimated:
+                response["summary"] += f" (estimated fc = {fc_estimated:.1f} Hz)"
+            
+            return json.dumps(response, ensure_ascii=False, indent=2)
+            
+        except Exception as e:
+            return json.dumps({
+                "status": "error",
+                "message": str(e),
+                "note": "Mock simulation used (QUCS-S not installed or netlist parsing not implemented yet)"
+            }, ensure_ascii=False, indent=2)
 
 
-if __name__ == "__main__":
-    # Example usage
-    simulator = QucsSimulator()
-    
-    # Simple RC circuit netlist example
-    rc_netlist = """* RC Low Pass Filter
-V1 in 0 DC 0 AC 1
-R1 in out 1k
-C1 out 0 1uF
-.control
-ac dec 10 1 1MEG
-.end
-.end
-"""
-    
-    result = simulator._run(rc_netlist, 'ac', ['frequency', 'out'])
-    print(result)
+# For backward compatibility
+__all__ = ["QucsSimulator"]
