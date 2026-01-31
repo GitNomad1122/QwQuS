@@ -5,7 +5,7 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     install_requires=[
-        "qwen-agent[gui,code_interpreter]>=1.1.0",
+        "qwen-agent[gui,code_interpreter]>=0.0.32",
         "numpy>=1.24.0",
         "pandas>=2.0.0",
         "matplotlib>=3.7.0",

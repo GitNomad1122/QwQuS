@@ -17,30 +17,38 @@ class QucsSimulator(BaseTool):
     """
     A tool that enables Qwen-Agent to interact with QUCS circuit simulator
     """
-    def __init__(self):
-        super().__init__()
-        self.name = 'qucs_simulator'
-        self.description = 'Run circuit simulations using QUCS simulator'
-        self.parameters = {
-            'type': 'object',
-            'properties': {
-                'netlist': {
-                    'type': 'string',
-                    'description': 'QUCS netlist to simulate'
-                },
-                'analysis_type': {
-                    'type': 'string',
-                    'enum': ['ac', 'dc', 'transient', 'custom'],
-                    'description': 'Type of analysis to perform'
-                },
-                'output_vars': {
-                    'type': 'array',
-                    'items': {'type': 'string'},
-                    'description': 'Variables to extract from simulation'
-                }
+    name = 'qucs_simulator'
+    description = 'Run circuit simulations using QUCS simulator'
+    parameters = {
+        'type': 'object',
+        'properties': {
+            'netlist': {
+                'type': 'string',
+                'description': 'QUCS netlist to simulate'
             },
-            'required': ['netlist']
-        }
+            'analysis_type': {
+                'type': 'string',
+                'enum': ['ac', 'dc', 'transient', 'custom'],
+                'description': 'Type of analysis to perform'
+            },
+            'output_vars': {
+                'type': 'array',
+                'items': {'type': 'string'},
+                'description': 'Variables to extract from simulation'
+            }
+        },
+        'required': ['netlist']
+    }
+
+    def call(self, params: str) -> str:
+        import json
+        params_dict = json.loads(params)
+        netlist = params_dict.get('netlist', '')
+        analysis_type = params_dict.get('analysis_type', 'ac')
+        output_vars = params_dict.get('output_vars', None)
+        
+        result = self._run(netlist, analysis_type, output_vars)
+        return json.dumps(result)
 
     def _run(self, netlist: str, analysis_type: str = 'ac', output_vars: Optional[List[str]] = None) -> Dict:
         """
